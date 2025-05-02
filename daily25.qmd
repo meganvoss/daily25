@@ -1,0 +1,67 @@
+---
+title: "daily25"
+format:
+  html:
+    self-contained: true
+execute:
+  echo: true
+---
+
+```{r}
+library(sf)
+library(tidyverse)
+library(tigris)
+library(tmap)
+options(tigris_use_cache = TRUE)
+
+miss_river <- st_read("data/MajorRivers.shp")
+
+mississippi <- miss_river %>%
+  filter(NAME == "Mississippi")  # double check this with `unique(miss_river$NAME)` if needed
+
+counties <- counties(cb = TRUE, resolution = "20m", year = 2022)
+
+cities_df <- read_csv("data/uscities copy.csv")
+
+cities <- st_as_sf(cities_df, coords = c("lng", "lat"), crs = 4326)
+
+cities <- st_transform(cities, crs = st_crs(mississippi))
+
+```
+```{r}
+counties <- st_transform(counties, crs = st_crs(mississippi))
+
+counties_miss <- counties[st_intersects(counties, mississippi, sparse = FALSE), ]
+
+cities_in_miss <- st_join(cities, counties_miss, join = st_within)
+
+cities_in_miss <- cities_in_miss %>% filter(!is.na(NAME))  # `NAME` is a county field
+
+county_pop <- cities_in_miss %>%
+  st_drop_geometry() %>%
+  group_by(STATEFP, COUNTYFP) %>%
+  summarise(total_urban_pop = sum(population, na.rm = TRUE))
+
+```
+
+```{r}
+counties_final <- counties_miss %>%
+  left_join(county_pop, by = c("STATEFP", "COUNTYFP"))
+
+tmap_mode("plot")
+
+tm_shape(counties_final) +
+  tm_polygons("total_urban_pop", palette = "Blues", title = "Urban Population") +
+  tm_layout(title = "Urban Population in Counties Along the Mississippi River")
+```
+
+```{r}
+miss_map <- tm_shape(counties_final) +
+  tm_polygons("total_urban_pop", palette = "Blues", title = "Urban Population") +
+  tm_layout(title = "Urban Population in Counties Along the Mississippi River")
+
+tmap_save(miss_map, filename = "imgs/mississippi_urban_pop.png", width = 6, height = 10)
+
+```
+
+
